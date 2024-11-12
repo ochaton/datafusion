@@ -25,6 +25,7 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::SessionConfig;
 use datafusion::execution::memory_pool::{FairSpillPool, GreedyMemoryPool};
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_cli::catalog::DynamicObjectStoreCatalog;
 use datafusion_cli::functions::ParquetMetadataFunc;
@@ -173,9 +174,16 @@ async fn main_inner() -> Result<()> {
 
     let runtime_env = create_runtime_env(rt_config.clone())?;
 
+    let state = SessionStateBuilder::new()
+        .with_config(session_config.clone())
+        .with_runtime_env(Arc::new(runtime_env))
+        .with_default_features()
+        .with_optimizer_rules(datafusion_federation::default_optimizer_rules())
+        .with_query_planner(Arc::new(datafusion_federation::FederatedQueryPlanner::new()))
+        .build();
+
     // enable dynamic file query
-    let ctx =
-        SessionContext::new_with_config_rt(session_config.clone(), Arc::new(runtime_env))
+    let ctx = SessionContext::new_with_state(state)
             .enable_url_table();
     ctx.refresh_catalogs().await?;
     // install dynamic catalog provider that can register required object stores
