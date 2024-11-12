@@ -312,15 +312,19 @@ async fn create_plan(
     // datafusion-cli specific options before passing through to datafusion. Otherwise, datafusion
     // will raise Configuration errors.
     if let LogicalPlan::Ddl(DdlStatement::CreateExternalTable(cmd)) = &plan {
-        // To support custom formats, treat error as None
-        let format = config_file_type_from_str(&cmd.file_type);
-        register_object_store_and_config_extensions(
-            ctx,
-            &cmd.location,
-            &cmd.options,
-            format,
-        )
-        .await?;
+        if cmd.location.starts_with("postgres://") {
+            register_postgres(ctx, &cmd).await?;
+        } else {
+            // To support custom formats, treat error as None
+            let format = config_file_type_from_str(&cmd.file_type);
+            register_object_store_and_config_extensions(
+                ctx,
+                &cmd.location,
+                &cmd.options,
+                format,
+            )
+            .await?;
+        }
     }
 
     if let LogicalPlan::Copy(copy_to) = &mut plan {
@@ -395,6 +399,60 @@ pub(crate) async fn register_object_store_and_config_extensions(
 
     // Register the retrieved object store in the session context's runtime environment
     ctx.register_object_store(url, store);
+
+    Ok(())
+}
+
+use std::sync::Arc;
+
+use datafusion_table_providers::{
+    postgres::PostgresTableFactory, sql::db_connection_pool::postgrespool::PostgresConnectionPool,
+    util::secrets::to_secret_map,
+};
+
+pub(crate) async fn register_postgres(
+    ctx: &dyn CliSessionContext,
+    cmd: &datafusion::logical_expr::logical_plan::CreateExternalTable,
+) -> Result<()> {
+    let state = ctx.session_state();
+
+    let location = &cmd.location;
+
+    // Parse the location URL to extract the scheme and other components
+    let table_path = ListingTableUrl::parse(location)?;
+
+    // Obtain a reference to the URL
+    let url: &url::Url = table_path.as_ref();
+
+    let table_ref = cmd.name.clone();
+
+    let db_name = url.path().strip_prefix("/").or(Some("")).unwrap();
+
+    let postgres_params = to_secret_map(HashMap::from([
+        ("host".to_string(), url.host().unwrap().to_string()),
+        ("user".to_string(), url.username().to_string()),
+        ("db".to_string(), db_name.to_string()),
+        ("pass".to_string(), url.password().or(Some("")).unwrap().to_string()),
+        ("port".to_string(), format!("{}", url.port().or(Some(5432)).unwrap()).to_string()),
+        ("sslmode".to_string(), "disable".to_string()),
+    ]));
+
+    let postgres_pool = Arc::new(
+        PostgresConnectionPool::new(postgres_params).await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?
+    );
+
+    let table_factory = PostgresTableFactory::new(postgres_pool);
+
+    let postgres_table = table_factory
+        .table_provider(table_ref)
+        .await
+        .map_err(|err| DataFusionError::External(err))?;
+
+    state.catalog_list()
+        .catalog(&state.config().options().catalog.default_catalog.clone()).unwrap()
+        .schema(&state.config().options().catalog.default_schema.clone()).unwrap()
+        .register_table(cmd.name.table().to_string(), postgres_table)?;
 
     Ok(())
 }

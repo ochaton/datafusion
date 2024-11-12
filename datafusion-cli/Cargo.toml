@@ -42,7 +42,7 @@ aws-sdk-sts = "=1.39.0"
 # end pin aws-sdk crates
 aws-credential-types = "1.2.0"
 clap = { version = "4.5.16", features = ["derive", "cargo"] }
-datafusion = { path = "../datafusion/core", version = "42.0.0", features = [
+datafusion = { version = "42.0.0", features = [
     "avro",
     "crypto_expressions",
     "datetime_expressions",
@@ -52,6 +52,9 @@ datafusion = { path = "../datafusion/core", version = "42.0.0", features = [
     "unicode_expressions",
     "compression",
 ] }
+datafusion-federation = { version = "=0.3.0", features = ["sql"] }
+datafusion-table-providers = { version = "=0.2.3", features = ["postgres", "postgres-federation"] }
+
 dirs = "5.0.1"
 env_logger = "0.11"
 futures = "0.3"
