@@ -427,12 +427,13 @@ pub(crate) async fn register_postgres(
     let table_ref = cmd.name.clone();
 
     let db_name = url.path().strip_prefix("/").or(Some("")).unwrap();
+    let password = url_escape::decode(url.password().or(Some("")).unwrap()).to_string();
 
     let postgres_params = to_secret_map(HashMap::from([
         ("host".to_string(), url.host().unwrap().to_string()),
         ("user".to_string(), url.username().to_string()),
         ("db".to_string(), db_name.to_string()),
-        ("pass".to_string(), url.password().or(Some("")).unwrap().to_string()),
+        ("pass".to_string(), password),
         ("port".to_string(), format!("{}", url.port().or(Some(5432)).unwrap()).to_string()),
         ("sslmode".to_string(), "disable".to_string()),
     ]));
